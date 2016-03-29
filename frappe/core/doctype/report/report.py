@@ -47,6 +47,11 @@ class Report(Document):
 			make_boilerplate("controller.py", self, {"name": self.name})
 			make_boilerplate("controller.js", self, {"name": self.name})
 
+	def on_trash(self):
+		if self.is_standard == "Yes" and frappe.session.user != "Administrator":
+			frappe.throw(_("Only Administrator can delete a standard report."))
+			
 	@Document.whitelist
 	def toggle_disable(self, disable):
 		self.db_set("disabled", cint(disable))
+		
