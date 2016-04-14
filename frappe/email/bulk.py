@@ -242,6 +242,7 @@ def flush(from_test=False):
 
 	# additional check
 	check_bulk_limit([])
+	frappe.db.commit()
 
 	if frappe.are_emails_muted():
 		msgprint(_("Emails are muted"))
