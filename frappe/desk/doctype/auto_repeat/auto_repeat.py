@@ -153,9 +153,10 @@ def make_auto_repeat_entry(date=None):
 		for data in get_auto_repeat_entries(date):
 			frappe.enqueue(enqueued_method, data=data)
 
-def create_repeated_entries(data):
+def create_repeated_entries(data, date=None):
 	schedule_date = getdate(data.next_schedule_date)
-	while schedule_date <= getdate(today()) and not frappe.db.get_value('Auto Repeat', data.name, 'disabled'):
+	date = getdate(date or today())
+	while schedule_date <= date and not frappe.db.get_value('Auto Repeat', data.name, 'disabled'):
 		create_documents(data, schedule_date)
 		schedule_date = get_next_schedule_date(schedule_date, data.frequency, data.repeat_on_day)
 
