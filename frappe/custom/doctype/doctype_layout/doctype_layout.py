@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe.desk.utils import slug
 from frappe.model.document import Document
+from frappe.utils import cast
 
 if TYPE_CHECKING:
 	from frappe.core.doctype.docfield.docfield import DocField
@@ -31,9 +32,12 @@ class DocTypeLayout(Document):
 		if not self.route:
 			self.route = slug(self.name)
 
+	def onload(self):
+		self.set_onload("layout_field_property_setters", self.get_layout_field_property_setters())
+
 	@frappe.whitelist()
 	def sync_fields(self):
-		doctype_fields = frappe.get_meta(self.document_type, cached=False).fields
+		doctype_fields = self.get_layout_aware_doctype_fields()
 
 		if self.is_new():
 			added_fields = [field.fieldname for field in doctype_fields]
@@ -54,6 +58,43 @@ class DocTypeLayout(Document):
 			field.idx = index + 1
 
 		return {"added": added, "removed": removed}
+
+	def get_layout_aware_doctype_fields(self) -> list["DocField"]:
+		doctype_fields = frappe.get_meta(self.document_type, cached=False).fields
+
+		# custom fields can be scoped to a specific layout. keep global + current layout fields.
+		return [
+			field
+			for field in doctype_fields
+			if not field.get("is_custom_field")
+			or not field.get("doctype_layout")
+			or field.get("doctype_layout") == self.name
+		]
+
+	def get_layout_field_property_setters(self) -> dict[str, dict]:
+		if not frappe.db.table_exists("Property Setter"):
+			return {}
+
+		property_setters = frappe.get_all(
+			"Property Setter",
+			filters={
+				"doc_type": self.document_type,
+				"doctype_layout": self.name,
+				"doctype_or_field": "DocField",
+			},
+			fields=["field_name", "property", "property_type", "value"],
+		)
+
+		field_properties = {}
+		for setter in property_setters:
+			if not setter.field_name:
+				continue
+
+			field_properties.setdefault(setter.field_name, {})[setter.property] = cast(
+				setter.property_type, setter.value
+			)
+
+		return field_properties
 
 	def add_fields(self, added_fields: list[str], doctype_fields: list["DocField"]) -> list[dict]:
 		added = []

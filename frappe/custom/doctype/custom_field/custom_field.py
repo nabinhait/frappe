@@ -34,6 +34,7 @@ class CustomField(Document):
 		depends_on: DF.Code | None
 		description: DF.Text | None
 		dt: DF.Link
+		doctype_layout: DF.Link | None
 		fetch_from: DF.SmallText | None
 		fetch_if_empty: DF.Check
 		fieldname: DF.Data | None
@@ -228,7 +229,11 @@ class CustomField(Document):
 		delete_property_setter(self.dt, field_name=self.fieldname)
 
 		# update doctype layouts
-		doctype_layouts = frappe.get_all("DocType Layout", filters={"document_type": self.dt}, pluck="name")
+		doctype_layout_filters = {"document_type": self.dt}
+		if self.doctype_layout:
+			doctype_layout_filters["name"] = self.doctype_layout
+
+		doctype_layouts = frappe.get_all("DocType Layout", filters=doctype_layout_filters, pluck="name")
 
 		for layout in doctype_layouts:
 			layout_doc = frappe.get_doc("DocType Layout", layout)

@@ -90,9 +90,21 @@ frappe.ui.form.Layout = class Layout {
 
 	get_fields_from_layout() {
 		const fields = [];
-		for (let f of this.doctype_layout.fields) {
-			const docfield = copy_dict(frappe.meta.docfield_map[this.doctype][f.fieldname]);
-			docfield.label = f.label;
+		const layout_field_overrides =
+			this.doctype_layout?.__onload?.layout_field_property_setters || {};
+
+		for (let f of this.doctype_layout.fields || []) {
+			const base_docfield = frappe.meta.docfield_map[this.doctype]?.[f.fieldname];
+			if (!base_docfield) continue;
+
+			const docfield = copy_dict(base_docfield);
+			docfield.label = f.label || docfield.label;
+			Object.assign(docfield, layout_field_overrides[f.fieldname] || {});
+
+			if (this.frm && !this.frm.get_perm(docfield.permlevel || 0, "read")) {
+				continue;
+			}
+
 			fields.push(docfield);
 		}
 		return fields;

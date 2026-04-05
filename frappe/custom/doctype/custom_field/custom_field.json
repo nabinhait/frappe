@@ -9,6 +9,7 @@
  "field_order": [
   "is_system_generated",
   "dt",
+    "doctype_layout",
   "module",
   "label",
   "placeholder",
@@ -81,6 +82,13 @@
    "reqd": 1,
    "search_index": 1
   },
+    {
+     "depends_on": "dt",
+     "fieldname": "doctype_layout",
+     "fieldtype": "Link",
+     "label": "DocType Layout",
+     "options": "DocType Layout"
+    },
   {
    "bold": 1,
    "fieldname": "label",

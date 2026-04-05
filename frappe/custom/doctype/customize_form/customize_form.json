@@ -9,6 +9,7 @@
  "field_order": [
   "details_tab",
   "doc_type",
+    "doctype_layout",
   "properties",
   "label",
   "search_fields",
@@ -84,6 +85,13 @@
    "label": "Enter Form Type",
    "options": "DocType"
   },
+    {
+     "depends_on": "doc_type",
+     "fieldname": "doctype_layout",
+     "fieldtype": "Link",
+     "label": "DocType Layout",
+     "options": "DocType Layout"
+    },
   {
    "depends_on": "doc_type",
    "fieldname": "properties",

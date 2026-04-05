@@ -425,7 +425,7 @@ class Meta(Document):
 
 		property_setters = frappe.db.get_values(
 			"Property Setter",
-			filters={"doc_type": self.name},
+			filters={"doc_type": self.name, "doctype_layout": ["in", ("", None)]},
 			fieldname="*",
 			as_dict=True,
 		)

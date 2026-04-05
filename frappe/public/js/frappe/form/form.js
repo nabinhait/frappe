@@ -38,7 +38,9 @@ frappe.ui.form.Form = class FrappeForm {
 		this.events = {};
 		this.fetch_dict = {};
 		this.parent = parent;
-		this.doctype_layout = frappe.get_meta(doctype_layout_name);
+		this.doctype_layout = doctype_layout_name
+			? frappe.get_doc("DocType Layout", doctype_layout_name)
+			: null;
 		this.undo_manager = new UndoManager({ frm: this });
 		this.setup_meta(doctype);
 		this.debounced_reload_doc = frappe.utils.debounce(this.reload_doc.bind(this), 1000);

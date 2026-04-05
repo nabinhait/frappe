@@ -11,6 +11,7 @@
   "sb0",
   "doctype_or_field",
   "doc_type",
+    "doctype_layout",
   "field_name",
   "row_name",
   "column_break0",
@@ -62,6 +63,13 @@
    "reqd": 1,
    "search_index": 1
   },
+    {
+     "depends_on": "doc_type",
+     "fieldname": "doctype_layout",
+     "fieldtype": "Link",
+     "label": "DocType Layout",
+     "options": "DocType Layout"
+    },
   {
    "depends_on": "eval:doc.doctype_or_field=='DocField'",
    "description": "ID (name) of the entity whose property is to be set",

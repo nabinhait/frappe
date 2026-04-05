@@ -25,6 +25,18 @@ frappe.ui.form.on("Customize Form", {
 			};
 		});
 
+		frm.set_query("doctype_layout", function () {
+			if (!frm.doc.doc_type) {
+				return {};
+			}
+
+			return {
+				filters: {
+					document_type: frm.doc.doc_type,
+				},
+			};
+		});
+
 		frm.set_query("default_print_format", function () {
 			return {
 				filters: {
@@ -53,6 +65,10 @@ frappe.ui.form.on("Customize Form", {
 
 	doc_type: function (frm) {
 		if (frm.doc.doc_type) {
+			if (frm.doc.doctype_layout) {
+				frm.set_value("doctype_layout", "");
+			}
+
 			return frm.call({
 				method: "fetch_to_customize",
 				doc: frm.doc,
@@ -78,6 +94,29 @@ frappe.ui.form.on("Customize Form", {
 		} else {
 			frm.refresh();
 		}
+	},
+
+	doctype_layout: function (frm) {
+		if (!frm.doc.doc_type) return;
+
+		return frm.call({
+			method: "fetch_to_customize",
+			doc: frm.doc,
+			freeze: true,
+			callback: function (r) {
+				if (r) {
+					if (r._server_messages && r._server_messages.length) {
+						frm.set_value("doctype_layout", "");
+					} else {
+						frm.refresh();
+						frm.trigger("setup_default_views");
+					}
+				}
+			},
+			error: function () {
+				frm.set_value("doctype_layout", "");
+			},
+		});
 	},
 
 	is_calendar_and_gantt: function (frm) {

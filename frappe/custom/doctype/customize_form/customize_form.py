@@ -23,7 +23,7 @@ from frappe.model import core_doctypes_list, no_value_fields
 from frappe.model.docfield import supports_translation
 from frappe.model.document import Document
 from frappe.model.meta import trim_table
-from frappe.utils import cint
+from frappe.utils import cast, cint
 
 
 class CustomizeForm(Document):
@@ -48,6 +48,7 @@ class CustomizeForm(Document):
 		default_print_format: DF.Link | None
 		default_view: DF.Literal[None]
 		doc_type: DF.Link | None
+		doctype_layout: DF.Link | None
 		editable_grid: DF.Check
 		email_append_to: DF.Check
 		fields: DF.Table[CustomizeFormField]
@@ -102,6 +103,11 @@ class CustomizeForm(Document):
 		if not self.doc_type:
 			return
 
+		if self.doctype_layout and not frappe.db.exists(
+			"DocType Layout", {"name": self.doctype_layout, "document_type": self.doc_type}
+		):
+			self.doctype_layout = None
+
 		meta = frappe.get_meta(self.doc_type, cached=False)
 
 		self.validate_doctype(meta)
@@ -138,7 +144,12 @@ class CustomizeForm(Document):
 		for prop in doctype_properties:
 			self.set(prop, meta.get(prop))
 
+		layout_field_properties = self.get_layout_field_property_setters()
+
 		for d in meta.get("fields"):
+			if not self.is_field_available_in_layout(d):
+				continue
+
 			new_d = {
 				"fieldname": d.fieldname,
 				"is_custom_field": d.get("is_custom_field"),
@@ -146,12 +157,52 @@ class CustomizeForm(Document):
 				"name": d.name,
 			}
 			for prop in docfield_properties:
-				new_d[prop] = d.get(prop)
+				new_d[prop] = layout_field_properties.get(d.fieldname, {}).get(prop, d.get(prop))
 			self.append("fields", new_d)
 
 		for fieldname in ("links", "actions", "states"):
 			for d in meta.get(fieldname):
 				self.append(fieldname, d)
+
+	def get_layout_field_property_setters(self) -> dict[str, dict]:
+		if hasattr(self, "_layout_field_property_setters"):
+			return self._layout_field_property_setters
+
+		if not self.doctype_layout:
+			self._layout_field_property_setters = {}
+			return self._layout_field_property_setters
+
+		property_setters = frappe.get_all(
+			"Property Setter",
+			filters={
+				"doc_type": self.doc_type,
+				"doctype_layout": self.doctype_layout,
+				"doctype_or_field": "DocField",
+			},
+			fields=["field_name", "property", "property_type", "value"],
+		)
+
+		field_properties = {}
+		for setter in property_setters:
+			if not setter.field_name:
+				continue
+
+			field_properties.setdefault(setter.field_name, {})[setter.property] = cast(
+				setter.property_type, setter.value
+			)
+
+		self._layout_field_property_setters = field_properties
+		return self._layout_field_property_setters
+
+	def is_field_available_in_layout(self, field):
+		if not field.get("is_custom_field"):
+			return True
+
+		field_layout = field.get("doctype_layout")
+		if self.doctype_layout:
+			return not field_layout or field_layout == self.doctype_layout
+
+		return not field_layout
 
 	def create_auto_repeat_custom_field_if_required(self, meta):
 		"""
@@ -213,6 +264,7 @@ class CustomizeForm(Document):
 
 	def clear_existing_doc(self):
 		doc_type = self.doc_type
+		doctype_layout = self.doctype_layout
 
 		for fieldname in self.meta.get_valid_columns():
 			self.set(fieldname, None)
@@ -221,6 +273,7 @@ class CustomizeForm(Document):
 			self.set(df.fieldname, [])
 
 		self.doc_type = doc_type
+		self.doctype_layout = doctype_layout
 		self.name = "Customize Form"
 
 	@frappe.whitelist()
@@ -267,8 +320,9 @@ class CustomizeForm(Document):
 	def set_property_setters(self):
 		meta = frappe.get_meta(self.doc_type)
 
-		# doctype
-		self.set_property_setters_for_doctype(meta)
+		# doctype and link/action/state changes are not layout-scoped.
+		if not self.doctype_layout:
+			self.set_property_setters_for_doctype(meta)
 
 		# docfield
 		for df in self.get("fields"):
@@ -278,8 +332,8 @@ class CustomizeForm(Document):
 
 			self.set_property_setters_for_docfield(meta, df, meta_df)
 
-		# action and links
-		self.set_property_setters_for_actions_and_links(meta)
+		if not self.doctype_layout:
+			self.set_property_setters_for_actions_and_links(meta)
 
 	def set_property_setter_for_field_order(self, meta):
 		new_order = [df.fieldname for df in self.fields]
@@ -317,9 +371,14 @@ class CustomizeForm(Document):
 		self.set_property_setter_for_field_order(meta)
 
 	def set_property_setters_for_docfield(self, meta, df, meta_df):
+		effective_meta_df = frappe._dict(meta_df[0].as_dict())
+		if self.doctype_layout:
+			for prop, value in self.get_layout_field_property_setters().get(df.fieldname, {}).items():
+				effective_meta_df[prop] = value
+
 		for prop, prop_type in docfield_properties.items():
-			if prop != "idx" and (df.get(prop) or "") != (meta_df[0].get(prop) or ""):
-				if not self.allow_property_change(prop, meta_df, df):
+			if prop != "idx" and (df.get(prop) or "") != (effective_meta_df.get(prop) or ""):
+				if not self.allow_property_change(prop, [effective_meta_df], df):
 					continue
 
 				self.make_property_setter(prop, df.get(prop), prop_type, fieldname=df.fieldname)
@@ -464,7 +523,7 @@ class CustomizeForm(Document):
 			if is_standard_or_system_generated_field(df):
 				continue
 
-			if not frappe.db.exists("Custom Field", {"dt": self.doc_type, "fieldname": df.fieldname}):
+			if not frappe.db.exists("Custom Field", self.get_custom_field_filters(df.fieldname)):
 				self.add_custom_field(df, i)
 				self.flags.update_db = True
 			else:
@@ -476,6 +535,7 @@ class CustomizeForm(Document):
 		d = frappe.new_doc("Custom Field")
 
 		d.dt = self.doc_type
+		d.doctype_layout = self.doctype_layout
 
 		for prop in docfield_properties:
 			d.set(prop, df.get(prop))
@@ -491,13 +551,13 @@ class CustomizeForm(Document):
 			self.flags.rebuild_doctype_for_global_search = True
 
 	def update_in_custom_field(self, df, i):
-		meta = frappe.get_meta(self.doc_type)
-		meta_df = meta.get("fields", {"fieldname": df.fieldname})
-		if not meta_df or is_standard_or_system_generated_field(meta_df[0]):
+		custom_field_name = frappe.db.get_value("Custom Field", self.get_custom_field_filters(df.fieldname))
+		if not custom_field_name:
 			# not a custom field
 			return
 
-		custom_field = frappe.get_doc("Custom Field", meta_df[0].name)
+		custom_field = frappe.get_doc("Custom Field", custom_field_name)
+		meta_df = [custom_field]
 		changed = False
 		for prop in docfield_properties:
 			if df.get(prop) != custom_field.get(prop):
@@ -524,16 +584,37 @@ class CustomizeForm(Document):
 
 	def delete_custom_fields(self):
 		meta = frappe.get_meta(self.doc_type)
-		fields_to_remove = {df.fieldname for df in meta.get("fields")} - {
+		scoped_fieldnames = {
+			df.fieldname for df in meta.get("fields") if self.is_field_available_in_layout(df)
+		}
+		fields_to_remove = scoped_fieldnames - {
 			df.fieldname for df in self.get("fields")
 		}
 		for fieldname in fields_to_remove:
-			df = meta.get("fields", {"fieldname": fieldname})[0]
-			if not is_standard_or_system_generated_field(df):
-				frappe.delete_doc("Custom Field", df.name)
+			custom_field_name = frappe.db.get_value("Custom Field", self.get_custom_field_filters(fieldname))
+			if custom_field_name:
+				frappe.delete_doc("Custom Field", custom_field_name)
+
+	def get_custom_field_filters(self, fieldname=None):
+		filters = {"dt": self.doc_type}
+		if fieldname:
+			filters["fieldname"] = fieldname
+
+		if self.doctype_layout:
+			filters["doctype_layout"] = self.doctype_layout
+		else:
+			filters["doctype_layout"] = ["in", ("", None)]
+
+		return filters
 
 	def make_property_setter(self, prop, value, property_type, fieldname=None, apply_on=None, row_name=None):
-		delete_property_setter(self.doc_type, prop, fieldname, row_name)
+		delete_property_setter(
+			self.doc_type,
+			prop,
+			fieldname,
+			row_name,
+			doctype_layout=self.doctype_layout,
+		)
 
 		property_value = self.get_existing_property_value(prop, fieldname)
 
@@ -547,6 +628,7 @@ class CustomizeForm(Document):
 		frappe.make_property_setter(
 			{
 				"doctype": self.doc_type,
+				"doctype_layout": self.doctype_layout,
 				"doctype_or_field": apply_on,
 				"fieldname": fieldname,
 				"row_name": row_name,
@@ -635,11 +717,13 @@ class CustomizeForm(Document):
 		if not self.doc_type:
 			return
 
-		property_setters = frappe.get_all(
-			"Property Setter",
-			filters={"doc_type": self.doc_type, "property": ("in", ("field_order", "insert_after"))},
-			pluck="name",
-		)
+		filters = {"doc_type": self.doc_type, "property": ("in", ("field_order", "insert_after"))}
+		if self.doctype_layout:
+			filters["doctype_layout"] = self.doctype_layout
+		else:
+			filters["doctype_layout"] = ["in", ("", None)]
+
+		property_setters = frappe.get_all("Property Setter", filters=filters, pluck="name")
 
 		if not property_setters:
 			return

@@ -19,6 +19,7 @@ class PropertySetter(Document):
 
 		default_value: DF.Data | None
 		doc_type: DF.Link
+		doctype_layout: DF.Link | None
 		doctype_or_field: DF.Literal[
 			"", "DocField", "DocType", "DocType Link", "DocType Action", "DocType State"
 		]
@@ -32,15 +33,24 @@ class PropertySetter(Document):
 	# end: auto-generated types
 
 	def autoname(self):
-		self.name = "{doctype}-{field}-{property}".format(
-			doctype=self.doc_type, field=self.field_name or self.row_name or "main", property=self.property
+		self.name = "{doctype}-{layout}-{field}-{property}".format(
+			doctype=self.doc_type,
+			layout=self.doctype_layout or "default",
+			field=self.field_name or self.row_name or "main",
+			property=self.property,
 		)
 
 	def validate(self):
 		self.validate_fieldtype_change()
 
 		if self.is_new():
-			delete_property_setter(self.doc_type, self.property, self.field_name, self.row_name)
+			delete_property_setter(
+				self.doc_type,
+				self.property,
+				self.field_name,
+				self.row_name,
+				doctype_layout=self.doctype_layout,
+			)
 
 		frappe.clear_cache(doctype=self.doc_type)
 
@@ -80,6 +90,7 @@ def make_property_setter(
 	for_doctype=False,
 	validate_fields_for_doctype=True,
 	is_system_generated=True,
+	doctype_layout=None,
 ):
 	# WARNING: Ignores Permissions
 	property_setter = frappe.get_doc(
@@ -87,6 +98,7 @@ def make_property_setter(
 			"doctype": "Property Setter",
 			"doctype_or_field": (for_doctype and "DocType") or "DocField",
 			"doc_type": doctype,
+			"doctype_layout": doctype_layout,
 			"field_name": fieldname,
 			"property": property,
 			"value": value,
@@ -100,9 +112,13 @@ def make_property_setter(
 	return property_setter
 
 
-def delete_property_setter(doc_type, property=None, field_name=None, row_name=None):
+def delete_property_setter(doc_type, property=None, field_name=None, row_name=None, doctype_layout=None):
 	"""delete other property setters on this, if this is new"""
 	filters = {"doc_type": doc_type}
+	if doctype_layout:
+		filters["doctype_layout"] = doctype_layout
+	else:
+		filters["doctype_layout"] = ["in", ("", None)]
 	if property:
 		filters["property"] = property
 
